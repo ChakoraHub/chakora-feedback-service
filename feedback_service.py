@@ -66,6 +66,11 @@ def get_db_connection():
             password=ORACLE_PASSWORD,
             dsn=dsn,
         )
+        oracle_schema = os.getenv("ORACLE_SCHEMA", "CHAKORA")
+        if oracle_schema:
+            cursor = conn.cursor()
+            cursor.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {oracle_schema}")
+            cursor.close()
         return conn
     except Exception as e:
         print(f"[ERROR] Oracle DB Connection Failed: {e}")
@@ -111,7 +116,9 @@ class GenerateLinkRequest(BaseModel):
     student_email: str
     registration_id: Optional[str] = None
     student_id: Optional[str] = None
-    activity_ids: List[str]
+    activity_ids: Optional[List[str]] = None
+    activities: Optional[List[Any]] = None
+    student_name: Optional[str] = None
     expiry_hours: float = 24.0
     generated_by: Optional[str] = "ADMIN"
 
@@ -167,9 +174,9 @@ def record_activity_core(
             cursor.execute(
                 """
                 SELECT r.REGISTRATION_ID, r.STUDENT_ID
-                FROM NRM_REGISTRATIONS r
-                JOIN NRM_STUDENTS s ON r.STUDENT_ID = s.ID
-                JOIN NRM_USERS u ON s.USER_ID = u.ID
+                FROM CHAKORA.NRM_REGISTRATIONS r
+                JOIN CHAKORA.NRM_STUDENTS s ON r.STUDENT_ID = s.ID
+                JOIN CHAKORA.NRM_USERS u ON s.USER_ID = u.ID
                 WHERE LOWER(TRIM(u.EMAIL)) = LOWER(TRIM(:email))
                 """,
                 {"email": email}
@@ -263,7 +270,19 @@ async def api_record_activity(req: ActivityRecordRequest):
 @app.post("/feedback/generate")
 async def api_generate_link(req: GenerateLinkRequest):
     """Admin generates secure unique token for selected eligible activities with custom expiry."""
-    if not req.activity_ids:
+    target_activity_ids = []
+    if req.activity_ids:
+        target_activity_ids.extend(req.activity_ids)
+    if req.activities:
+        for act in req.activities:
+            if isinstance(act, str):
+                target_activity_ids.append(act)
+            elif isinstance(act, dict):
+                aid = act.get("activity_id") or act.get("id") or act.get("ACTIVITY_ID")
+                if aid:
+                    target_activity_ids.append(str(aid))
+
+    if not target_activity_ids:
         raise HTTPException(status_code=400, detail="At least one activity must be selected.")
 
     conn = get_db_connection()
@@ -296,7 +315,7 @@ async def api_generate_link(req: GenerateLinkRequest):
         )
 
         # Link selected activities
-        for act_id in req.activity_ids:
+        for act_id in target_activity_ids:
             cursor.execute(
                 """
                 UPDATE FEEDBACK_ACTIVITY
@@ -311,7 +330,7 @@ async def api_generate_link(req: GenerateLinkRequest):
             feedback_id=feedback_id,
             action="GENERATED",
             actor=req.generated_by or "ADMIN",
-            details=f"Token generated for {len(req.activity_ids)} activities. Expiry: {req.expiry_hours} hours."
+            details=f"Token generated for {len(target_activity_ids)} activities. Expiry: {req.expiry_hours} hours."
         )
 
         conn.commit()
@@ -327,13 +346,21 @@ async def api_generate_link(req: GenerateLinkRequest):
             "token": secure_token,
             "feedback_url": feedback_url,
             "expires_at": expires_at.isoformat(),
-            "expiry_hours": req.expiry_hours
+            "expiry_hours": req.expiry_hours,
+            "requests": [
+                {
+                    "feedback_url": feedback_url,
+                    "feedback_id": feedback_id,
+                    "token": secure_token
+                }
+            ]
         }
     except Exception as e:
         if conn:
             conn.close()
         print(f"[ERROR] api_generate_link failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.post("/feedback/send")
@@ -553,9 +580,9 @@ async def api_get_feedback_report():
             SELECT m.FEEDBACK_ID, m.STUDENT_ID, m.REGISTRATION_ID, m.EMAIL,
                    m.TOKEN, m.TOKEN_CREATED_AT, m.TOKEN_EXPIRES_AT, m.EXPIRY_HOURS,
                    m.OVERALL_STATUS, m.SENT_AT, m.SUBMITTED_AT, m.AVERAGE_RATING,
-                   s.FIRST_NAME, s.LAST_NAME, s.PHONE, s.ADDRESS
+                   s.FIRST_NAME, s.LAST_NAME, s.ADDRESS
             FROM FEEDBACK_MASTER m
-            LEFT JOIN NRM_STUDENTS s ON m.STUDENT_ID = s.ID
+            LEFT JOIN CHAKORA.NRM_STUDENTS s ON m.STUDENT_ID = s.ID
             ORDER BY m.CREATED_AT DESC
             """
         )
@@ -607,6 +634,7 @@ async def api_get_feedback_by_token(token: str):
     Validates token, enforces one-time use & expiry rules,
     returns student details, linked activities, and dynamic questions.
     """
+    clean_token = token.rstrip("/\\").replace("%5C", "").strip()
     conn = get_db_connection()
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection failed")
@@ -619,8 +647,9 @@ async def api_get_feedback_by_token(token: str):
             FROM FEEDBACK_MASTER
             WHERE TOKEN = :1
             """,
-            {"1": token}
+            (clean_token,)
         )
+
         row = cursor.fetchone()
         if not row:
             cursor.close()
