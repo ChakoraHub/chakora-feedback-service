@@ -36,9 +36,9 @@ load_dotenv()
 # ================= ORACLE DB CONFIG =================
 ORACLE_HOST = os.getenv("ORACLE_HOST", "56.228.73.210")
 ORACLE_PORT = int(os.getenv("ORACLE_PORT", "1521"))
-ORACLE_SERVICE_NAME = os.getenv("ORACLE_SERVICE_NAME", "FREE")
-ORACLE_USER = os.getenv("ORACLE_USER", "CHAKORA")
-ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "Chakora##2026")
+ORACLE_SERVICE_NAME = os.getenv("ORACLE_SERVICE_NAME", "FREEPDB1")
+ORACLE_USER = os.getenv("ORACLE_USER", "SUPPORT")
+ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "Welcome123")
 
 FEEDBACK_BASE_URL = os.getenv("FEEDBACK_BASE_URL", "http://localhost:8080/feedback").rstrip("/")
 
