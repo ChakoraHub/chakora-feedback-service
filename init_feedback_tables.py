@@ -7,9 +7,9 @@ load_dotenv()
 
 ORACLE_HOST = os.getenv("ORACLE_HOST", "56.228.73.210")
 ORACLE_PORT = int(os.getenv("ORACLE_PORT", "1521"))
-ORACLE_SERVICE_NAME = os.getenv("ORACLE_SERVICE_NAME", "FREE")
-ORACLE_USER = os.getenv("ORACLE_USER", "system")
-ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "Chakora##2026")
+ORACLE_SERVICE_NAME = os.getenv("ORACLE_SERVICE_NAME", "FREEPDB1")
+ORACLE_USER = os.getenv("ORACLE_USER", "SUPPORT")
+ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "Welcome123")
 
 def init_tables():
     print(f"Connecting to Oracle DB at {ORACLE_HOST}:{ORACLE_PORT}/{ORACLE_SERVICE_NAME} as {ORACLE_USER}...")
@@ -24,6 +24,11 @@ def init_tables():
             password=ORACLE_PASSWORD,
             dsn=dsn
         )
+        oracle_schema = os.getenv("ORACLE_SCHEMA", "CHAKORA")
+        if oracle_schema:
+            cursor = conn.cursor()
+            cursor.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {oracle_schema}")
+            cursor.close()
         cursor = conn.cursor()
         print("Connected successfully!")
 
